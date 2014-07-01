@@ -50,6 +50,7 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -181,8 +182,7 @@ public class QuillWriterActivity
     	setKeepScreenOn();
     	UndoManager.setApplication(this);
     }
-
-
+    
     private void setKeepScreenOn() {
         SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(this);
         boolean screenOn = settings.getBoolean(Preferences.KEY_KEEP_SCREEN_ON, true);
@@ -880,6 +880,7 @@ public class QuillWriterActivity
 
         
     @Override protected void onResume() {
+    	Log.v(TAG, "onResume! selection isempty?"+mView.emptySelection());
     	mView.stopInput();
     	UndoManager.setApplication(this);
         mView.setOnToolboxListener(null);
@@ -887,6 +888,12 @@ public class QuillWriterActivity
 
         SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(this);
         mView.loadSettings(settings);
+        if (Graphics.isSelectTool(mView.getToolType()) && 
+        		mView.emptySelection() && mView.getSelectMode() != SelectMode.SELECT){
+        	mView.setToolType(mView.getSelectTool());
+        	mView.setSelectMode(SelectMode.SELECT);
+        }
+        	
         setActiveTool(mView.getToolType());
     	someToolsSwitchBack = settings.getBoolean(Preferences.KEY_TOOLS_SWITCH_BACK, true);
     	volumeKeyNavigation = settings.getBoolean(Preferences.KEY_VOLUME_KEY_NAVIGATION, true);
@@ -926,7 +933,7 @@ public class QuillWriterActivity
     
     @Override 
     protected void onPause() {
-    	Log.d(TAG, "onPause");
+    	Log.d(TAG, "onPause selection isempty?"+mView.emptySelection());
     	mView.stopInput();
         if (hideSystembar)
         	HideBar.showSystembar(getApplicationContext());
@@ -939,10 +946,12 @@ public class QuillWriterActivity
         mView.saveSettings(editor);
         editor.commit();
     	UndoManager.setApplication(null);
+    	Log.d(TAG, "onPause Done selection isempty?"+mView.emptySelection());
     }
     
     @Override
     protected void onStop() {
+    	Log.d(TAG, "onStop");
 		// bookshelf.backup();
     	super.onStop();
     }

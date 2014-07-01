@@ -11,12 +11,23 @@ public class Lasso {
 	RectF boundingBox = new RectF();
 	boolean below = false; //lasso contains everything below open curve
 	
-	public Lasso(float x, float y) {
+	public Lasso() {
 		pos_x = new float[Nmax+1];
 		pos_y = new float[Nmax+1];
+		N = 0;
+	}
+	
+	public void start(float x, float y) {
 		pos_x[0] = x;
 		pos_y[0] = y;
-		N = 1;
+		N = 1;		
+	}
+
+	public void empty() {
+		N = 0;
+	}
+	public boolean isEmpty() {
+		return N == 0;
 	}
 
 	public void setBelow() {

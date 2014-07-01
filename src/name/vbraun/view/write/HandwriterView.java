@@ -76,6 +76,7 @@ public class HandwriterView
 	private static final String KEY_PEN_THICKNESS = "pen_thickness";
 	public static final String KEY_DEBUG_OPTIONS = "debug_options_enable";
 	public static final String KEY_PEN_SMOOTH_FILTER = "pen_smooth_filter";
+	public static final String KEY_SELECT_TOOL = "select_tool";
 	
 	// values for the preferences key KEY_LIST_PEN_INPUT_MODE
     public static final String STYLUS_ONLY = "STYLUS_ONLY";
@@ -288,6 +289,12 @@ public class HandwriterView
 	}
 	
 	public void setToolType(Tool tool) {
+		Log.v("HWView","setToolType "+tool+ " old: "+tool_type);
+		if (emptySelection())
+			Log.v("HWView","selection empty");
+		else
+			Log.v("HWView","selection exists");
+	
 		if (tool.equals(tool_type)) return;
 		if (Graphics.isSelectTool(tool) && Graphics.isSelectTool(tool_type)) {
 			if (tool != Tool.SELECT_MOVE && tool != Tool.SELECT_VMOVE)
@@ -297,10 +304,12 @@ public class HandwriterView
 			return;
 		}
 		if (touchHandler != null) {
+			Log.v("HWView","Destroying TouchHandler!!");
 			touchHandler.destroy();
 			touchHandler = null;
 		}
-		clearSelection();
+		if (!Graphics.isSelectTool(tool))
+			clearSelection();	
 		switch (tool) {
 		case FOUNTAINPEN:
 		case PENCIL:
@@ -313,6 +322,8 @@ public class HandwriterView
 		case SELECT_WAND:
 		case SELECT_FREE:
 		case SELECT_RECT:
+		case SELECT_MOVE:
+		case SELECT_VMOVE:
 			touchHandler = new TouchHandlerSelect(this);
 			break;
 		case ARROW:
@@ -501,12 +512,17 @@ public class HandwriterView
     	boolean toolbox_left = settings.getBoolean(KEY_TOOLBOX_IS_ON_LEFT, true);
     	setToolbox(toolbox_left);
 
+    	int selectToolInt = settings.getInt(KEY_SELECT_TOOL, Tool.SELECT_WAND.ordinal());
+    	setSelectTool(Tool.values()[selectToolInt]);
+
     	int toolTypeInt = settings.getInt(KEY_PEN_TYPE, Tool.FOUNTAINPEN.ordinal());
     	Stroke.Tool toolType = Stroke.Tool.values()[toolTypeInt];
     	if (toolType == Tool.ERASER)  // don't start with sharp whirling blades 
     		toolType = Tool.MOVE;
+    	if (Graphics.isSelectTool(toolType))
+    		toolType = getSelectTool();
     	setToolType(toolType);
-
+    	
     	boolean toolbox_is_visible = settings.getBoolean(KEY_TOOLBOX_IS_VISIBLE, false);
         getToolBox().setToolboxVisible(toolbox_is_visible);
     	setMoveGestureMinDistance(settings.getInt("move_gesture_min_distance", 400));
@@ -571,6 +587,7 @@ public class HandwriterView
         editor.putInt(KEY_PEN_TYPE, getToolType().ordinal());
         editor.putInt(KEY_PEN_COLOR, getPenColor());
         editor.putInt(KEY_PEN_THICKNESS, getPenThickness());
+        editor.putInt(KEY_SELECT_TOOL, getSelectTool().ordinal());
 
 		ToolHistory history = ToolHistory.getToolHistory();
     	history.saveToSettings(editor);
@@ -716,14 +733,27 @@ public class HandwriterView
 		}
 		bitmap = newBitmap;
 		canvas = newCanvas;
+
+		Bitmap newSelectionBitmap = Bitmap.createBitmap(curW, curH, Bitmap.Config.ARGB_8888);
+		Canvas newSelectionCanvas = new Canvas();
+		newSelectionCanvas.setBitmap(newSelectionBitmap);
+		if (selectionBitmap != null) {
+			newSelectionCanvas.drawBitmap(selectionBitmap, 0, 0, null);
+		}
+		selectionBitmap = newSelectionBitmap;
+		selectionCanvas = newSelectionCanvas;
+		
 		setPageAndZoomOut(page);
 	}
 
 	@Override 
 	protected void onDraw(Canvas canvas) {
+		Log.v("HWView","onDraw");
 		if (bitmap == null) return;
 		if (touchHandler != null) 
 			touchHandler.draw(canvas, bitmap);
+		else
+			Log.v("HWView","Lost TouchHandler");
 		if (overlay != null) 
 			overlay.draw(canvas);
 		if (palmShield) {
@@ -948,8 +978,7 @@ public class HandwriterView
 	public void startSelectionInCurrentPage() {
 		clearSelection();
 		selectionInPage = getPage();
-		selectionBitmap = Bitmap.createBitmap(bitmap.getWidth(),bitmap.getHeight(),Bitmap.Config.ARGB_8888);
-		selectionCanvas = new Canvas(selectionBitmap);
+		selectionBitmap.eraseColor(Color.TRANSPARENT);
 		selectionMatrix.reset();
 	}
 	
@@ -1238,8 +1267,7 @@ public class HandwriterView
 	}
 
 	private void renderSelection() {
-		selectionBitmap = Bitmap.createBitmap(bitmap.getWidth(),bitmap.getHeight(),Bitmap.Config.ARGB_8888);
-		selectionCanvas = new Canvas(selectionBitmap);
+		selectionBitmap.eraseColor(Color.TRANSPARENT);
 		RectF r = new RectF(); 
 		r.set(0,0,selectionCanvas.getWidth(), selectionCanvas.getHeight());
 		for (GraphicsImage s: selectedImage) {

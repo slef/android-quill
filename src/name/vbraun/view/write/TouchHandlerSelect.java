@@ -24,7 +24,7 @@ public class TouchHandlerSelect extends TouchHandlerABC {
 	private float newX1, newY1, newX2, newY2;
 	private final RectF mRectF = new RectF();
 	private Paint pen;
-	protected Lasso lasso;
+	protected final Lasso lasso = new Lasso();
 	private int Nmax = 1024;
 
 
@@ -37,6 +37,9 @@ public class TouchHandlerSelect extends TouchHandlerABC {
 		pen.setStyle(Paint.Style.STROKE);
 		float[] dash = {5,5}; 
 		pen.setPathEffect(new DashPathEffect(dash, 0));
+		//if (!view.emptySelection() && view.getSelectMode() == SelectMode.SELECT) {
+		//	view.setSelectMode(SelectMode.MOVE);
+		//}
 	}	
 
 	@Override
@@ -98,7 +101,7 @@ public class TouchHandlerSelect extends TouchHandlerABC {
 					mRectF.inset(-15, -15);
 					view.selectIntersects(mRectF);					
 				}
-				if (view.getSelectTool() == Tool.SELECT_FREE && lasso != null) {
+				if (view.getSelectTool() == Tool.SELECT_FREE && !lasso.isEmpty()) {
 					if (mRectF.height()+mRectF.width() > 10 && !lasso.full()) {
 						lasso.add(newX, newY);
 						drawOutline(oldX,oldY,newX,newY);
@@ -142,13 +145,13 @@ public class TouchHandlerSelect extends TouchHandlerABC {
 
 			if (mode == SelectMode.SELECT) {
 				view.startSelectionInCurrentPage();
-				lasso = new Lasso(newX, newY);
+				lasso.start(newX, newY);
 			} else if (mode == SelectMode.MOVE || mode == SelectMode.VMOVE) {
 				if (!view.selectionInCurrentPage() || !view.touchesSelection(newX, newY)) {
 					view.startSelectionInCurrentPage();
 					view.setSelectMode(SelectMode.SELECT);
 					mode = SelectMode.SELECT;
-					lasso = new Lasso(newX, newY);
+					lasso.start(newX, newY);
 				}
 			}
 			Log.v("TouchHandlerSelect", "ACTION_DOWN "+mode+" "+oldX+" "+oldY);
@@ -167,7 +170,7 @@ public class TouchHandlerSelect extends TouchHandlerABC {
 						view.selectIn(lasso);
 					}
 					if (!view.emptySelection()) {
-						if (lasso != null && lasso.getBelow()) {
+						if (!lasso.isEmpty() && lasso.getBelow()) {
 							view.setSelectMode(SelectMode.VMOVE);
 							mode = SelectMode.VMOVE;							
 						} else {
@@ -175,7 +178,7 @@ public class TouchHandlerSelect extends TouchHandlerABC {
 							mode = SelectMode.MOVE;
 						}
 					}
-					lasso = null;
+					lasso.empty();
 					view.selectionChanged();
 				} else if (mode == SelectMode.MOVE || mode == SelectMode.VMOVE) {
 					penID = -1;
@@ -234,6 +237,7 @@ public class TouchHandlerSelect extends TouchHandlerABC {
 		if (fingerId2 != -1 && view.getSelectMode() == SelectMode.SELECT) {
 			drawPinchZoomPreview(canvas, bitmap, oldX1, newX1, oldX2, newX2, oldY1, newY1, oldY2, newY2);
 		} else {
+			Log.v("TouchHandlerSelect", "DrawingBitmap");
 			canvas.drawBitmap(bitmap, 0, 0, null);
 			view.drawSelection(canvas);
 			if (view.getSelectTool() == Tool.SELECT_RECT && view.getSelectMode() == SelectMode.SELECT &&
@@ -242,7 +246,7 @@ public class TouchHandlerSelect extends TouchHandlerABC {
 				view.invalidate();
 			}
 			if (view.getSelectTool() == Tool.SELECT_FREE && 
-					lasso != null && view.selectionInCurrentPage() && penID != -1) {
+					!lasso.isEmpty() && view.selectionInCurrentPage() && penID != -1) {
 				canvas.drawLine(newX, newY, lasso.startX(), lasso.startY(), pen);
 				view.invalidate();
 			}
