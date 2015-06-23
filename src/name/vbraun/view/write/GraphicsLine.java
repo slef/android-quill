@@ -12,6 +12,7 @@ import junit.framework.Assert;
 
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.util.Log;
@@ -56,12 +57,16 @@ public class GraphicsLine extends GraphicsControlpoint {
 		setPen(line.pen_thickness, line.pen_color);
 	}
 
+	public GraphicsControlpoint copyForUndo() {
+	return new GraphicsLine(this);
+}
+
 	@Override
 	protected Controlpoint initialControlpoint() {
 		return p1;
 	}
 
-	void setPen(int new_pen_thickness, int new_pen_color) {
+	private void setPen(int new_pen_thickness, int new_pen_color) {
 		pen_thickness = new_pen_thickness;
 		pen_color = new_pen_color;
 		pen.setARGB(Color.alpha(pen_color), Color.red(pen_color), 
@@ -71,6 +76,21 @@ public class GraphicsLine extends GraphicsControlpoint {
 		recompute_bounding_box = true;
 	}
 	
+	public void setPenColor(int new_pen_color) {
+		pen_color = new_pen_color;
+		pen.setARGB(Color.alpha(pen_color), Color.red(pen_color), Color.green(pen_color), Color.blue(pen_color));
+	}
+	
+	public void setPenThickness(int new_pen_thickness) {
+		pen_thickness = new_pen_thickness;
+		recompute_bounding_box = true;
+	}
+	
+	public void halofy() {
+		// Thicken and color in green
+		setPen(pen_thickness+15, 0x7000ff00);
+	}
+
 	// this computes the argument to Paint.setStrokeWidth()
 	public float getScaledPenThickness() {
 		return Stroke.getScaledPenThickness(scale, pen_thickness);
@@ -92,6 +112,18 @@ public class GraphicsLine extends GraphicsControlpoint {
 		float y0 = p0.screenY();
 		float y1 = p1.screenY();
 		return lineIntersectsRectF(x0, y0, x1, y1, screenRect);
+	}
+	
+	public boolean isIn(RectF r_screen) {
+		return (r_screen.contains(getBoundingBox()));
+	}
+	
+	public boolean intersects(Lasso lasso) {
+		return lasso.intersectsSegment(p0.screenX(), p0.screenY(), p1.screenX(), p1.screenY());
+	}
+	
+	public boolean isIn(Lasso lasso) {
+		return lasso.containsSegment(p0.screenX(), p0.screenY(), p1.screenX(), p1.screenY());
 	}
 	
 	public static boolean lineIntersectsRectF(float x0, float y0, float x1, float y1, RectF rect) { 
@@ -117,6 +149,33 @@ public class GraphicsLine extends GraphicsControlpoint {
 		if (yMax < rect.top) return false;
 		return true;
 	}
+	
+	private static float nabla(float x1,float y1,float x2,float y2,float x3, float y3) {
+		return (x1*(y2-y3)-x2*(y1-y3)+x3*(y1-y2));
+	}
+
+	public static boolean lineIntersectsLine(float ax1, float ay1,float ax2, float ay2,
+			float bx1, float by1,float bx2, float by2) {
+		return nabla(ax1,ay1,ax2,ay2,bx1,by1)*nabla(ax1,ay1,ax2,ay2,bx2,by2) <= 0 &&
+				nabla(bx1,by1,bx2,by2,ax1,ay1)*nabla(bx1,by1,bx2,by2,ax2,ay2) <= 0;
+	}
+
+	public void translate(float dx, float dy) { // In screen coordinates
+		p0.translate(dx, dy);
+		p1.translate(dx, dy);
+		recompute_bounding_box = true;
+	}
+
+	public void applyMatrix(Matrix m) { // In screen coordinates
+		Matrix tm = transform.transformMatrix(m);
+		float points[] = {p0.x,p0.y,p1.x,p1.y};
+		tm.mapPoints(points);
+		p0.x = points[0];
+		p0.y = points[1];
+		p1.x = points[2];
+		p1.y = points[3];
+		recompute_bounding_box = true;
+	}
 
 	@Override
 	public void draw(Canvas c, RectF bounding_box) {
@@ -129,6 +188,9 @@ public class GraphicsLine extends GraphicsControlpoint {
 		y0 = p0.screenY();
 		y1 = p1.screenY();
 		// Log.v(TAG, "Line ("+x0+","+y0+") -> ("+x1+","+y1+"), thickness="+scaled_pen_thickness);
+
+		// On some devices, hardware acceleration prevents the caps from being drawn properly
+		// see https://code.google.com/p/android/issues/detail?id=24873
 		c.drawLine(x0, y0, x1, y1, pen);
 	}
 

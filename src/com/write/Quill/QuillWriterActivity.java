@@ -1,7 +1,5 @@
 package com.write.Quill;
 
-import java.io.File;
-import java.io.IOException;
 import java.util.LinkedList;
 import java.util.UUID;
 
@@ -15,6 +13,7 @@ import name.vbraun.lib.pen.HideBar;
 import name.vbraun.view.write.Graphics;
 import name.vbraun.view.write.GraphicsImage;
 import name.vbraun.view.write.HandwriterView;
+import name.vbraun.view.write.HandwriterView.SelectMode;
 import name.vbraun.view.write.Page;
 import name.vbraun.view.write.ToolHistory;
 import name.vbraun.view.write.Stroke;
@@ -45,10 +44,13 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -70,6 +72,7 @@ import android.view.MenuItem;
 import android.view.MenuInflater;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.View.OnLongClickListener;
 import android.view.View.OnTouchListener;
 import android.view.WindowManager;
 import android.view.View.OnClickListener;
@@ -78,6 +81,7 @@ import android.widget.AdapterView.AdapterContextMenuInfo;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.ListAdapter;
 import android.widget.ListView;
 import android.widget.PopupWindow;
@@ -93,6 +97,7 @@ public class QuillWriterActivity
 	extends	
 		ActivityBase
 	implements 
+		ClipboardManager.OnPrimaryClipChangedListener,
 		name.vbraun.view.write.Toolbox.OnToolboxListener,
 		name.vbraun.view.write.InputListener {
 	private static final String TAG = "Quill";
@@ -108,6 +113,8 @@ public class QuillWriterActivity
     private Menu mMenu;
     private Toast mToast;
     private Button tagButton;
+    private MenuItem selectItem = null;
+    private View selectActionView = null;
     
     private boolean volumeKeyNavigation;
     private boolean someToolsSwitchBack;
@@ -158,6 +165,8 @@ public class QuillWriterActivity
         mView.setOnGraphicsModifiedListener(UndoManager.getUndoManager());
         mView.setOnToolboxListener(this);
         mView.setOnInputListener(this);
+		ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        clipboard.addPrimaryClipChangedListener(this);
 
         ActionBar bar = getActionBar();
         bar.setDisplayOptions(ActionBar.DISPLAY_HOME_AS_UP | ActionBar.DISPLAY_SHOW_HOME);
@@ -173,8 +182,7 @@ public class QuillWriterActivity
     	setKeepScreenOn();
     	UndoManager.setApplication(this);
     }
-
-
+    
     private void setKeepScreenOn() {
         SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(this);
         boolean screenOn = settings.getBoolean(Preferences.KEY_KEEP_SCREEN_ON, true);
@@ -211,6 +219,8 @@ public class QuillWriterActivity
         		public void onClick(DialogInterface dialog, int i) {
         			Toast.makeText(getApplicationContext(), 
         				dialogThickness.getItem(i), Toast.LENGTH_SHORT).show();
+        			if (Graphics.isSelectTool(mView.getToolType()) && !mView.emptySelection() && mView.selectionInCurrentPage())
+        				mView.changeSelectionThickness(dialogThickness.getValue(i));
         			setPenThickness(dialogThickness.getValue(i));
         			dialog.dismiss();
         		}};
@@ -292,7 +302,10 @@ public class QuillWriterActivity
         		}
         		@Override
         		public void onOk(AmbilWarnaDialog dialog, int color) {
-        			setPenColor(color);
+        			if (Graphics.isSelectTool(mView.getToolType()) && !mView.emptySelection() && mView.selectionInCurrentPage())
+        				mView.changeSelectionColor(color);
+        			else
+        				setPenColor(color);
         		}
         	});
         return dlg.getDialog();
@@ -303,6 +316,26 @@ public class QuillWriterActivity
         MenuInflater inflater = getMenuInflater();
         inflater.inflate(R.menu.quill, menu);
         mMenu = menu;        
+        
+        selectItem = menu.findItem(R.id.select);
+        selectActionView = selectItem.getActionView();
+        selectActionView.setOnLongClickListener(new OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {   
+            	selectItem.setActionView(null);
+                mMenu.performIdentifierAction(selectItem.getItemId(), 0); 
+            	selectItem.setActionView(selectActionView);
+                return true;
+            }
+        });
+        selectActionView.setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {   
+                setActiveTool(mView.getSelectTool()); 
+            }
+        });
+        
+        
         if (!Hardware.hasPressureSensor()) {
         	MenuItem fountainPen = mMenu.findItem(R.id.fountainpen);
         	fountainPen.setVisible(false);
@@ -320,6 +353,7 @@ public class QuillWriterActivity
         menu_prepare_page_has_changed();
     	updatePenHistoryIcon();
     	updateUndoRedoIcons();
+    	updateCopyPasteIcons();
     	setActionBarIconActive(mView.getToolType());
     	return true;
     }
@@ -354,6 +388,9 @@ public class QuillWriterActivity
 		case R.id.toolbox_pencil:
 			setActiveTool(Tool.PENCIL);
 			break;
+		case R.id.toolbox_select:
+			setActiveTool(mView.getSelectTool());
+			break;
 		case R.id.toolbox_line:
 			setActiveTool(Tool.LINE);
 			break;
@@ -367,7 +404,10 @@ public class QuillWriterActivity
 			setActiveTool(Tool.MOVE);
 			break;
 		case R.id.toolbox_eraser:
-			setActiveTool(Tool.ERASER);
+			if (Graphics.isSelectTool(mView.getToolType()) && !mView.emptySelection() && mView.selectionInCurrentPage())
+				mView.eraseSelection();
+			else
+				setActiveTool(Tool.ERASER);
 			break;
 		case R.id.toolbox_next:
 		case R.id.toolbox_action_next:
@@ -394,11 +434,16 @@ public class QuillWriterActivity
 	
 	@Override
 	public void onToolboxColorListener(int color) {
-		setPenColor(color);		
+		if (Graphics.isSelectTool(mView.getToolType()) && !mView.emptySelection() && mView.selectionInCurrentPage())
+			mView.changeSelectionColor(color);
+		else
+			setPenColor(color);		
 	}
 
 	@Override
 	public void onToolboxLineThicknessListener(int thickness) {
+		if (Graphics.isSelectTool(mView.getToolType()) && !mView.emptySelection() && mView.selectionInCurrentPage())
+			mView.changeSelectionThickness(thickness);
 		setPenThickness(thickness);
 	}
   
@@ -421,12 +466,30 @@ public class QuillWriterActivity
     	case R.id.tools_pencil:
     		setActiveTool(Tool.PENCIL);
     		return true;
+    	case R.id.select:
+    		setActiveTool(mView.getSelectTool());
+    		return true;
+    	case R.id.select_wand:
+    		mView.setSelectTool(Tool.SELECT_WAND);
+    		setActiveTool(Tool.SELECT_WAND);
+    		return true;
+    	case R.id.select_free:
+    		mView.setSelectTool(Tool.SELECT_FREE);
+    		setActiveTool(Tool.SELECT_FREE);
+    		return true;
+    	case R.id.select_rect:
+    		mView.setSelectTool(Tool.SELECT_RECT);
+    		setActiveTool(Tool.SELECT_RECT);
+    		return true;
 		case R.id.tools_line:
 			setActiveTool(Tool.LINE);
 			return true;
     	case R.id.eraser:
     	case R.id.tools_eraser:
-    		setActiveTool(Tool.ERASER);
+			if (Graphics.isSelectTool(mView.getToolType()) && !mView.emptySelection() && mView.selectionInCurrentPage())
+				mView.eraseSelection();
+			else
+				setActiveTool(Tool.ERASER);
     		return true;
     	case R.id.move:
     	case R.id.tools_move:
@@ -437,6 +500,12 @@ public class QuillWriterActivity
     		return true;
     	case R.id.tools_image:
     		setActiveTool(Tool.IMAGE);
+    		return true;
+    	case R.id.edit_copy:
+    		copySelection();
+    		return true;
+    	case R.id.edit_paste:
+    		pasteSelection();
     		return true;
     	case R.id.width:
     		showDialog(DIALOG_THICKNESS);
@@ -515,26 +584,66 @@ public class QuillWriterActivity
     		return super.onOptionsItemSelected(item);
     	}
     }
-
+    
     ///////////////////////////////////////////////////////////////////////////////
     // Actual implementations of actions
     ///////////////////////////////////////////////////////////////////////////////
 
 	private void setActiveTool(Tool tool) {
+		if (Graphics.isSelectTool(tool) && (mView.getSelectMode() == SelectMode.MOVE)) {
+			mView.setSelectTool(tool);
+			tool = Tool.SELECT_MOVE;
+		}
+		if (Graphics.isSelectTool(tool) && (mView.getSelectMode() == SelectMode.VMOVE)) {
+			mView.setSelectTool(tool);
+			tool = Tool.SELECT_VMOVE;
+		}
 		mView.setToolType(tool);
 		setActionBarIconActive(tool);
 	}
 
+	private int toolIcon (Tool tool) {
+    	switch (tool) {
+    	case FOUNTAINPEN:
+    		return R.drawable.ic_menu_quill;
+    	case PENCIL:
+    		return R.drawable.ic_menu_pencil;
+    	case SELECT_WAND:
+    		return R.drawable.ic_menu_select;
+    	case SELECT_FREE:
+    		return R.drawable.ic_tool_free_select;
+    	case SELECT_RECT:
+    		return R.drawable.ic_tool_rect_select;
+    	case SELECT_MOVE:
+    		return R.drawable.ic_tool_move_select;
+    	case SELECT_VMOVE:
+    		return R.drawable.ic_tool_vmove_select;
+    	case LINE:
+    		return R.drawable.ic_menu_line;
+    	case MOVE:
+    		return R.drawable.ic_menu_resize;
+    	case ERASER:
+    		return R.drawable.ic_menu_eraser;
+    	case IMAGE:
+    		return R.drawable.ic_menu_photo;
+    	case TEXT:
+    		return R.drawable.ic_menu_text;
+    	}		
+		return 0;
+	}
+	
     protected void setActionBarIconActive(Tool tool) {
     	if (mMenu == null || tool == null) return;
 		updatePenHistoryIcon();
 		MenuItem item_fountainpen = mMenu.findItem(R.id.fountainpen);
 		MenuItem item_pencil      = mMenu.findItem(R.id.pencil);
+		MenuItem item_select      = mMenu.findItem(R.id.select);
 		MenuItem item_move        = mMenu.findItem(R.id.move);
 		MenuItem item_eraser      = mMenu.findItem(R.id.eraser);
 		// MenuItem item_typewriter  = mMenu.findItem(R.id.typewriter);
 		MenuItem tools_fountainpen = mMenu.findItem(R.id.tools_fountainpen);
 		MenuItem tools_pencil      = mMenu.findItem(R.id.tools_pencil);
+		MenuItem tools_select      = mMenu.findItem(R.id.tools_select);
 		MenuItem tools_line        = mMenu.findItem(R.id.tools_line);
 		MenuItem tools_move        = mMenu.findItem(R.id.tools_move);
 		MenuItem tools_eraser      = mMenu.findItem(R.id.tools_eraser);
@@ -542,6 +651,8 @@ public class QuillWriterActivity
 		MenuItem tools_typewriter  = mMenu.findItem(R.id.tools_typewriter);
 		item_fountainpen.setIcon(R.drawable.ic_menu_quill);
 		item_pencil.setIcon(R.drawable.ic_menu_pencil);
+		item_select.setIcon(toolIcon(mView.getSelectTool()));
+		((ImageView)selectActionView).setImageResource(toolIcon(mView.getSelectTool()));
     	item_move.setIcon(R.drawable.ic_menu_resize);
     	item_eraser.setIcon(R.drawable.ic_menu_eraser);
     	// item_typewriter.setIcon(R.drawable.ic_menu_text);
@@ -553,6 +664,31 @@ public class QuillWriterActivity
     	case PENCIL:
     		item_pencil.setIcon(R.drawable.ic_menu_pencil_active);
     		tools_pencil.setChecked(true);
+    		return;
+    	case SELECT_WAND:
+    		item_select.setIcon(R.drawable.ic_menu_select_active);
+    		((ImageView)selectActionView).setImageResource(R.drawable.ic_menu_select_active);
+    		tools_select.setChecked(true);
+    		return;
+    	case SELECT_FREE:
+    		item_select.setIcon(R.drawable.ic_tool_free_select_active);
+    		((ImageView)selectActionView).setImageResource(R.drawable.ic_tool_free_select_active);
+    		tools_select.setChecked(true);
+    		return;
+    	case SELECT_RECT:
+    		item_select.setIcon(R.drawable.ic_tool_rect_select_active);
+    		((ImageView)selectActionView).setImageResource(R.drawable.ic_tool_rect_select_active);
+    		tools_select.setChecked(true);
+    		return;
+    	case SELECT_MOVE:
+    		item_select.setIcon(R.drawable.ic_tool_move_select_active);
+    		((ImageView)selectActionView).setImageResource(R.drawable.ic_tool_move_select_active);
+    		tools_select.setChecked(true);
+    		return;
+    	case SELECT_VMOVE:
+    		item_select.setIcon(R.drawable.ic_tool_vmove_select_active);
+    		((ImageView)selectActionView).setImageResource(R.drawable.ic_tool_vmove_select_active);
+    		tools_select.setChecked(true);
     		return;
     	case LINE:
     		tools_line.setChecked(true);
@@ -595,13 +731,28 @@ public class QuillWriterActivity
     private void undo() {
 		UndoManager.getUndoManager().undo();
 		updateUndoRedoIcons();
+		mView.clearSelection();
     }
     
     private void redo() {
 		UndoManager.getUndoManager().redo();
 		updateUndoRedoIcons();	
+		mView.clearSelection();
+    }
+
+    public void onPrimaryClipChanged() {
+    	updateCopyPasteIcons();
     }
     
+    private void copySelection() {
+    	mView.copySelection(this);
+	}
+
+    private void pasteSelection() {
+    	setActiveTool(mView.getSelectTool());
+    	mView.pasteSelection(this);
+	}
+
     private void switchToPage(Page page) {
     	mView.setPageAndZoomOut(page);
     	TagOverlay overlay = new TagOverlay(getApplicationContext(), 
@@ -729,6 +880,7 @@ public class QuillWriterActivity
 
         
     @Override protected void onResume() {
+    	Log.v(TAG, "onResume! selection isempty?"+mView.emptySelection());
     	mView.stopInput();
     	UndoManager.setApplication(this);
         mView.setOnToolboxListener(null);
@@ -736,6 +888,12 @@ public class QuillWriterActivity
 
         SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(this);
         mView.loadSettings(settings);
+        if (Graphics.isSelectTool(mView.getToolType()) && 
+        		mView.emptySelection() && mView.getSelectMode() != SelectMode.SELECT){
+        	mView.setToolType(mView.getSelectTool());
+        	mView.setSelectMode(SelectMode.SELECT);
+        }
+        	
         setActiveTool(mView.getToolType());
     	someToolsSwitchBack = settings.getBoolean(Preferences.KEY_TOOLS_SWITCH_BACK, true);
     	volumeKeyNavigation = settings.getBoolean(Preferences.KEY_VOLUME_KEY_NAVIGATION, true);
@@ -768,13 +926,14 @@ public class QuillWriterActivity
         mView.setOnToolboxListener(this);
         mView.setOnInputListener(this);
     	updateUndoRedoIcons();
+    	updateCopyPasteIcons();
     	setKeepScreenOn();
     	mView.startInput();
     }
     
     @Override 
     protected void onPause() {
-    	Log.d(TAG, "onPause");
+    	Log.d(TAG, "onPause selection isempty?"+mView.emptySelection());
     	mView.stopInput();
         if (hideSystembar)
         	HideBar.showSystembar(getApplicationContext());
@@ -787,10 +946,12 @@ public class QuillWriterActivity
         mView.saveSettings(editor);
         editor.commit();
     	UndoManager.setApplication(null);
+    	Log.d(TAG, "onPause Done selection isempty?"+mView.emptySelection());
     }
     
     @Override
     protected void onStop() {
+    	Log.d(TAG, "onStop");
 		// bookshelf.backup();
     	super.onStop();
     }
@@ -915,6 +1076,32 @@ public class QuillWriterActivity
     	}
     }
 
+    private static final String CONTENT_URI = "content://com.write.Quill";
+	private static final Uri copyUri = Uri.parse(CONTENT_URI + "/copy");		
+
+	public boolean clipboardUsable(){
+		ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+		if(!(clipboard.hasPrimaryClip())) return false;
+		ClipData clip = clipboard.getPrimaryClip();
+		if (clip == null) return false;
+		ClipData.Item it = clip.getItemAt(0);
+		if (it == null) return false;
+		if (it.getUri() == null) return false;
+		return it.getUri().equals(copyUri);
+	}
+	
+	private void updateCopyPasteIcons() {
+    	if (mMenu==null) return;
+    	MenuItem copy = mMenu.findItem(R.id.edit_copy);
+    	if (mView.emptySelection() == copy.isEnabled()) {
+    		copy.setEnabled(!mView.emptySelection());
+    	}
+    	MenuItem paste = mMenu.findItem(R.id.edit_paste);
+    	boolean c = clipboardUsable();
+    	if (c != paste.isEnabled()) 
+    		paste.setEnabled(c);
+    }
+
 	@Override
 	public void onStrokeFinishedListener() {
 		if (!someToolsSwitchBack) return;
@@ -924,6 +1111,20 @@ public class QuillWriterActivity
 		setActiveTool(h.getTool());
 	}
 
+	@Override
+	public void onSelectionChangedListener(){
+		if (mView.getToolType() == mView.getSelectTool() && mView.getSelectMode() == SelectMode.MOVE) {
+			setActiveTool(Tool.SELECT_MOVE);
+		}
+		if (mView.getToolType() == mView.getSelectTool() && mView.getSelectMode() == SelectMode.VMOVE) {
+			setActiveTool(Tool.SELECT_VMOVE);
+		}
+		if ((mView.getToolType() == Tool.SELECT_MOVE || mView.getToolType() == Tool.SELECT_VMOVE) && mView.getSelectMode() == SelectMode.SELECT) {
+			setActiveTool(mView.getSelectTool());
+		}
+		updateCopyPasteIcons();
+	}
+	
 	@Override
 	public void onPickImageListener(GraphicsImage image) {
     	Intent intent = new Intent(getApplicationContext(), ImageActivity.class);

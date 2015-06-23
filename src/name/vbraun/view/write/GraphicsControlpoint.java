@@ -45,6 +45,10 @@ public abstract class GraphicsControlpoint extends Graphics {
 			this.y = transform.inverseY(y);
 			GraphicsControlpoint.this.controlpointMoved(this);
 		}
+		public void translate(float dx, float dy) { // In screen coordinates
+			this.x += dx/scale;
+			this.y += dy/scale;
+		}
 		public GraphicsControlpoint getGraphics() {
 			return GraphicsControlpoint.this;
 		}
@@ -67,6 +71,9 @@ public abstract class GraphicsControlpoint extends Graphics {
 		fillPaint = new Paint(graphics.fillPaint);
 		outlinePaint = new Paint(graphics.outlinePaint);
 	}
+
+	// Make a copy just deep enough for the undo manager
+	public abstract GraphicsControlpoint copyForUndo();
 	
 	/**
 	 * Derived classes must add their control points to this list
@@ -103,7 +110,7 @@ public abstract class GraphicsControlpoint extends Graphics {
 		ListIterator<Controlpoint> point_iter = controlpoints.listIterator();
 		ListIterator<Controlpoint> backup_iter = backupControlpoints.listIterator();
 		while (point_iter.hasNext())
-			point_iter.next().set(backup_iter.next());				
+			point_iter.next().set(backup_iter.next());			
 	}
 	
 	/**

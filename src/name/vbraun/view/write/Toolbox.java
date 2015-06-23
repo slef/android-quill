@@ -11,6 +11,7 @@ import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
@@ -64,6 +65,12 @@ public class Toolbox
 	protected ImageButton redButton, redButtonRight, redButtonLeft;
 	protected ImageButton undoButton, redoButton;
 	protected ImageButton fountainpenButton, pencilButton, lineButton;
+	protected ImageButton selectButton;
+	protected Drawable selectFreeDrawable;
+	protected Drawable selectRectDrawable;
+	protected Drawable selectWandDrawable;
+	protected Drawable selectMoveDrawable;
+	protected Drawable selectVMoveDrawable;
 	protected ImageButton resizeButton;
 	protected ImageButton eraserButton;	
 	protected ImageButton textButton, photoButton;
@@ -104,11 +111,17 @@ public class Toolbox
         	View.inflate(context, R.layout.toolbox, this);
         else      
         	View.inflate(context, R.layout.toolbox_right, this);
+        selectRectDrawable = getResources().getDrawable(R.drawable.toolbox_select_rect);
+        selectFreeDrawable = getResources().getDrawable(R.drawable.toolbox_select_free);
+        selectWandDrawable = getResources().getDrawable(R.drawable.toolbox_select_wand);
+        selectMoveDrawable = getResources().getDrawable(R.drawable.toolbox_select_move);
+        selectVMoveDrawable = getResources().getDrawable(R.drawable.toolbox_select_vmove);
 		redButton    = (ImageButton) findViewById(R.id.toolbox_redbutton);
 		undoButton   = (ImageButton) findViewById(R.id.toolbox_undo);
 		redoButton   = (ImageButton) findViewById(R.id.toolbox_redo);
 		fountainpenButton = (ImageButton) findViewById(R.id.toolbox_fountainpen);
 		pencilButton = (ImageButton) findViewById(R.id.toolbox_pencil);
+		selectButton = (ImageButton) findViewById(R.id.toolbox_select);
 		lineButton   = (ImageButton) findViewById(R.id.toolbox_line);
 		resizeButton = (ImageButton) findViewById(R.id.toolbox_resize);
 		eraserButton = (ImageButton) findViewById(R.id.toolbox_eraser);
@@ -158,6 +171,7 @@ public class Toolbox
 		redoButton.setOnClickListener(this);
 		fountainpenButton.setOnClickListener(this);
 		pencilButton.setOnClickListener(this);
+		selectButton.setOnClickListener(this);
 		lineButton.setOnClickListener(this);
 		resizeButton.setOnClickListener(this);
 		eraserButton.setOnClickListener(this);
@@ -194,6 +208,7 @@ public class Toolbox
         if (!debugOptions) {
         	textButton.setVisibility(View.GONE);  // TODO
         	photoButton.setVisibility(View.GONE);  // TODO
+        	selectButton.setVisibility(View.GONE);  // TODO
         }
     	   
 		if (height_small) {
@@ -236,6 +251,12 @@ public class Toolbox
 			return fountainpenButton;
 		case PENCIL:
 			return pencilButton;
+		case SELECT_WAND:
+		case SELECT_RECT:
+		case SELECT_FREE:
+		case SELECT_MOVE:
+		case SELECT_VMOVE:
+			return selectButton;
 		case MOVE:
 			return resizeButton;
 		case ERASER:
@@ -276,6 +297,16 @@ public class Toolbox
 	private Graphics.Tool previousTool;
 
  	public void setActiveTool(Tool tool) {
+ 		if (tool == Tool.SELECT_FREE)
+ 			selectButton.setImageDrawable(selectFreeDrawable);
+ 		if (tool == Tool.SELECT_WAND)
+ 			selectButton.setImageDrawable(selectWandDrawable);
+ 		if (tool == Tool.SELECT_RECT)
+ 			selectButton.setImageDrawable(selectRectDrawable);
+ 		if (tool == Tool.SELECT_MOVE)
+ 			selectButton.setImageDrawable(selectMoveDrawable);
+ 		if (tool == Tool.SELECT_VMOVE)
+ 			selectButton.setImageDrawable(selectVMoveDrawable);
  		setIconActive(previousTool, false);
 		setIconActive(tool, true);
 		previousTool = tool;
@@ -314,6 +345,7 @@ public class Toolbox
 		
 		if (debugOptions) {
         	textButton.setVisibility(vis);  // TODO
+        	selectButton.setVisibility(vis);  // TODO
         }
 
 		if (prevButton.getVisibility() != View.GONE) {
